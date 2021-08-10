@@ -1,0 +1,237 @@
+ORG 0000H 
+LJMP START
+MESSAGE1: DB “SOIL MOISTURE”,0FH 
+MESSAGE2: DB “DETECTION”,0FH 
+MESSAGE3: DB “PLACE THE PROBE”,0FH 
+MESSAGE4: DB “MOISTURE VALUE”,0FH 
+MOTOR: DB “MOTOR ON”,0FH
+ ORG 0050H 
+START: CLR P3.0 ;output for motor circuit
+ CLR P3.3 ;output for less
+ CLR P3.4 
+CLR P3.5 
+CLR P3.6 
+MOV P1,#0FFH ; configuring as input for ADC 
+LCALL INIT ; LCD init routine 
+MOV DPTR,#MESSAGE1 ; message pointer
+ LCALL DISPCH2 ; display on LCD 
+MOV A,#0C0H ; command for lcd 2 nd line
+LCALL CMD ; command routine for LCD 
+MOV DPTR,#MESSAGE2 
+LCALL DISPCH2 
+LCALL DELAY 
+MOV A,#01H ;command for clear lcd 
+LCALL CMD 
+MOV A,#80H ;command for first line 
+LCALL CMD MOV DPTR ,#MESSAGE3 
+LCALL DISPCH2 
+LCALL DELAY1
+ MESG_VAL:MOV A,#01H 
+LCALL CMD 
+MOV A,#80H
+LCALL CMD 
+MOV DPTR ,#MESSAGE4 
+LCALL DISPCH2 
+REPEAT: SETB P2.0 ;CS for adc 
+SETB P2.1 ; RD for adc 
+SETB P2.2 ;WR for adc 
+SETB P2.3 ;INTR for adc 
+LCALL ADC_READ ; return the ADC value in A reg 
+LCALL PERCENT ;to calculate percentage 
+MOV R4,A 
+LCALL BCD ; hex to bcd conversion FF > 255 
+LCALL UNPACK ; BCD to ASCII ;returns value in 62h, 61h and 60h 
+location ; 
+255 > 02 05 05 > 32 35 35 
+LCALL OUTPUT ;display the result
+MOV A,R4 ;check for RELAY on if 5%%<percent<20%
+CJNE A,#5H,CHK2 ;5% 
+CHK2:JNC OK ;check carry flag
+ SJMP LED_CHK
+ OK:CJNE A,#14H,CHK3 ;20% 
+CHK3:JNC LED_CHK 
+LCALL TILL 
+SJMP MESG_VAL 
+LED_CHK:CJNE A,#3CH,LCHK ;LED ON FOR PERCENT>60%
+LCHK:JNC L_ON ;CHECK carry flag 
+SJMP BACK 
+L_ON:LCALL LED_R
+ BACK: SJMP REPEAT 
+ADC_READ: 
+CLR P2.0 ;CS=0 
+LCALL DELAY 
+CLR P2.2 ;WR 
+NOP 
+SETB P2.2 ; WR 
+SETB P2.0 ;CS=1 
+HERE1: JB P2.3, HERE1 ; INTR PIN POLLING 
+CLR P2.0 ;CS=0 
+CLR P2.1 ; RD
+MOV A,P1 
+SETB P2.0 
+SETB P2.1 
+SETB P2.3 
+LCALL DELAY 
+RET
+PERCENT:MOV B,#33H ;51D 
+DIV AB 
+MOV 75H,B 
+MOV B,#14H ;20D 
+MUL AB 
+MOV 50H,A 
+MOV A,#100 
+SUBB A,50H ;subtract the value from 100 
+MOV R0,75H 
+CJNE R0,#25,CK ;varying the percentage based on remainder 
+CK:JNC check_3_4 
+SJMP Check_1_4 
+check_3_4:CJNE R0,#38,CK2 
+CK2:JNC AD 
+SUBB A,#9
+ sjmp T 
+AD:SUBB A,#15 
+SJMP T 
+Check_1_4: CJNE R0,#12,CK3 
+CK3:JNC SD 
+SJMP T 
+SD:SUBB A,#5 
+T:RET 
+BCD:MOV A,R4 ;hex to bcd conversion 
+MOV R3,A 
+CJNE A,#00H, SKIP2 
+MOV R6,A 
+MOV R7,A 
+RET 
+SKIP2: CLR A 
+MOV R7,A 
+UP1: ADD A,#01H 
+DA A 
+JNC SKP 
+INC R7 
+SKP: DJNZ R3,UP1 
+MOV R6,A 
+RET 
+UNPACK:MOV A,R7 ;unpack bcd values 
+ADD A,#30H 
+MOV 62H,A 
+MOV A,R6 
+ANL A,#0FH 
+ADD A,#30H 
+MOV 60H,A 
+MOV A,R6 
+SWAP A 
+ANL A,#0FH 
+ADD A,#30H 
+MOV 61H,A 
+RET 
+OUTPUT:MOV A,#0C0H ; command for lcd 2 nd line 
+LCALL CMD ; command routine for LCD 
+MOV A,62H 
+LCALL DISP ; display a byte on LCD 
+MOV A,61H 
+LCALL DISP 
+LCALL DELAY 
+MOV A,60H 
+LCALL DISP
+LCALL DELAY 
+MOV A,#25H 
+LCALL DISP 
+LCALL DELAY1 
+RET 
+TILL: MOV A,#01H ;function for motor 
+LCALL CMD
+ MOV A,#80H ;command for first line 
+LCALL CMD MOV DPTR,#MOTOR ; message pointer 
+LCALL DISPCH2 
+SETB P3.0 ;MOTOR on 
+LCALL DELAY1 
+LCALL DELAY1 
+CLR P3.0 
+LCALL DELAY1
+ LCALL DELAY1 
+LCALL DELAY1
+ LCALL ADC_READ ; return the ADC value in A reg 
+LCALL PERCENT 
+MOV R4,A 
+LCALL BCD 
+LCALL UNPACK 
+MOV A,#01H
+ LCALL CMD
+ MOV A,#80H 
+LCALL CMD 
+MOV DPTR ,#MESSAGE4 
+LCALL DISPCH2 
+LCALL OUTPUT 
+MOV A,R4 
+CJNE A,#28H,CHK ;40% 
+CHK:JC TILL 
+RET 
+LED_R: SETB P3.3 ;LED 
+SETB P3.4 
+SETB P3.5 
+SETB P3.6 
+LCALL DELAY1 
+CLR P3.3 
+CLR P3.4 
+CLR P3.5 
+CLR P3.6 
+RET 
+INIT:MOV A,#3CH ;refer manual for the bit meaning 
+LCALL CMD 
+MOV A,#3CH 
+LCALL CMD 
+MOV A,#3CH 
+LCALL CMD 
+MOV A,#0EH
+ LCALL CMD 
+MOV A,#06H
+LCALL CMD 
+MOV A,#01 
+LCALL CMD 
+RET 
+CMD:LCALL READY 
+MOV P0,A 
+CLR p2.5 ; low on RS 
+CLR p2.6 
+SETB p2.7 ; high to low on En line 
+LCALL DELAY 
+CLR p2.7 
+RET 
+DISP:LCALL READY 
+MOV P0, A 
+SETB p2.5 ; high RS 
+CLR p2.6 ;; low RW 
+SETB p2.7 ; high to low En 
+CLR p2.7 
+RET 
+READY:CLR 0A7H ;read busy flag 
+MOV P0,#0FFH 
+CLR 0A5H 
+SETB 0A6H 
+WAIT:CLR 0A7H 
+LCALL DELAY 
+SETB 0A7H 
+JB p0.7,WAIT 
+RET 
+DELAY: MOV R6,#0ffh ;delay routine for firing 
+HERE3: MOV R5,#0ffH 
+REPEAT1: DJNZ R5,REPEAT1 
+DJNZ R6,HERE3 
+RET 
+DELAY1: MOV R5,#0AH 
+BACK: MOV R1,#0FFH 
+BACK1: MOV R0,#0FFH 
+BACK2: DJNZ R0,BACK2 
+DJNZ R1,BACK1 
+DJNZ R5,BACK 
+RET 
+DISPCH2:NOP 
+UP11: CLR A 
+MOVC A,@A+DPTR ;use lookup table to get ascii character 
+CJNE A,#0FH,SKIP5 
+RET 
+SKIP5: INC DPTR 
+LCALL DISP
+ SJMP UP11
+ END
+
